@@ -50,6 +50,7 @@ import com.linecorp.armeria.common.HttpStatus;
 import com.linecorp.centraldogma.common.Entry;
 import com.linecorp.centraldogma.common.Query;
 import com.linecorp.centraldogma.common.Revision;
+import com.linecorp.centraldogma.internal.Jackson;
 import com.linecorp.centraldogma.server.storage.repository.Repository;
 import com.linecorp.centraldogma.testing.junit.CentralDogmaExtension;
 
@@ -79,16 +80,17 @@ class AggregatingMultipleKubernetesTest {
         final Map<String, String> selector = ImmutableMap.of("app1", "nginx1");
         final Deployment deployment = newDeployment("deployment1", selector);
         final Service service = newService("service1", selector);
-        createResources(nodes, deployment, service);
+        createResources(nodes, deployment, service, true);
 
         final List<Node> nodes2 = ImmutableList.of(newNode("3.3.3.3"), newNode("4.4.4.4"));
         final Map<String, String> selector2 = ImmutableMap.of("app2", "nginx2");
         final Deployment deployment2 = newDeployment("deployment2", selector2);
         final Service service2 = newService("service2", selector2);
-        createResources(nodes2, deployment2, service2);
+        createResources(nodes2, deployment2, service2, true);
     }
 
-    private static void createResources(List<Node> nodes, Deployment deployment, Service service) {
+    private static void createResources(List<Node> nodes, Deployment deployment, Service service,
+                                        boolean create) {
         final List<Pod> pods = nodes.stream()
                                     .map(node -> node.getMetadata().getName())
                                     .map(nodeName -> newPod(deployment.getSpec().getTemplate(), nodeName))
@@ -101,7 +103,11 @@ class AggregatingMultipleKubernetesTest {
         client.pods().resource(pods.get(0)).create();
         client.pods().resource(pods.get(1)).create();
         client.apps().deployments().resource(deployment).create();
-        client.services().resource(service).create();
+        if (create) {
+            client.services().resource(service).create();
+        } else {
+            client.services().resource(service).update();
+        }
     }
 
     @Test
@@ -181,16 +187,18 @@ class AggregatingMultipleKubernetesTest {
                 "  } ]" +
                 '}'
         );
-        // Remove service2
-        final KubernetesEndpointAggregator aggregator1 =
-                aggregator.toBuilder().removeLocalityLbEndpoints(1).build();
-        final AggregatedHttpResponse response1 =
-                updateAggregator(aggregator1, aggregatorId, dogma.httpClient());
-        assertOk(response1);
+        // Change service2
+        final List<Node> nodes = ImmutableList.of(newNode("5.5.5.5"), newNode("6.6.6.6"));
+        final Map<String, String> selector = ImmutableMap.of("app3", "nginx3");
+        final Deployment deployment = newDeployment("deployment3", selector);
+        final Service service2 = newService("service2", selector);
+        createResources(nodes, deployment, service2, false);
+
         await().until(() -> fooGroup.normalizeNow(Revision.HEAD).equals(
-                endpointEntry.revision().forward(2))); // 2 because of the aggregator update and endpoint update
+                endpointEntry.revision().forward(1)));
         final Entry<JsonNode> endpointEntry1 = fooGroup.getOrNull(Revision.HEAD, Query.ofJson(
                 K8S_ENDPOINTS_DIRECTORY + aggregatorId + ".json")).join();
+        System.err.println(Jackson.writeValueAsPrettyString(endpointEntry1.content()));
         assertThatJson(endpointEntry1.content()).isEqualTo(
                 '{' +
                 "  \"clusterName\": \"groups/foo/k8s/clusters/foo-k8s-cluster/1\"," +
@@ -217,7 +225,32 @@ class AggregatingMultipleKubernetesTest {
                 "        }" +
                 "      }" +
                 "    } ]" +
-                "  }]" +
+                "  }, {" +
+                "    \"locality\": {" +
+                "      \"zone\": \"zone2\"" +
+                "    }," +
+                "    \"lbEndpoints\": [ {" +
+                "      \"endpoint\": {" +
+                "        \"address\": {" +
+                "          \"socketAddress\": {" +
+                "            \"address\": \"5.5.5.5\"," +
+                "            \"portValue\": 30000" +
+                "          }" +
+                "        }" +
+                "      }" +
+                "    }, {" +
+                "      \"endpoint\": {" +
+                "        \"address\": {" +
+                "          \"socketAddress\": {" +
+                "            \"address\": \"6.6.6.6\"," +
+                "            \"portValue\": 30000" +
+                "          }" +
+                "        }" +
+                "      }" +
+                "    } ]," +
+                "    \"loadBalancingWeight\": 10," +
+                "    \"priority\": 1" +
+                "  } ]" +
                 '}'
         );
     }
