@@ -15,12 +15,12 @@ jobs:
       github.event.issue.pull_request &&
       contains(github.event.comment.body, '/gemini-review')
     steps:
-      - name: PR Info
-        run: |
-          echo "PR Number: ${{ github.event.number }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
-          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+      #- name: PR Info
+      #  run: |
+      #    echo "PR Number: ${{ github.event.number }}"
+      #    echo "Repository: ${{ github.repository }}"
+      #    echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
+      #    echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
 
       - name: Checkout Repo
         uses: actions/checkout@v4
