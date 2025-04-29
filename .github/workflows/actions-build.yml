@@ -45,7 +45,7 @@ jobs:
             snapshot: true
             os: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - id: setup-build-jdk
       name: Set up build JDK ${{ env.BUILD_JDK_VERSION }}
@@ -141,7 +141,7 @@ jobs:
     env:
       GRADLE_OPTS: -Xmx1280m
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - id: setup-jdk
         name: Set up JDK ${{ env.BUILD_JDK_VERSION }}
@@ -165,7 +165,7 @@ jobs:
     env:
       GRADLE_OPTS: -Xmx1280m
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - id: setup-jdk
         name: Set up JDK ${{ env.BUILD_JDK_VERSION }}
