@@ -29,7 +29,7 @@ function addBadges(parent) {
   li.className = 'toctree-l1';
   var div = document.createElement('div');
   div.className = 'project-badges';
-  addBadge(div, 'https://img.shields.io/github/stars/line/centraldogma.svg?style=social');
+  addBadge(div, 'https://img.shields.io/github/stars/line/centraldogma?style=social');
   addBadge(div, 'https://img.shields.io/badge/chat-on%20Discord-brightgreen.svg?style=social',
     'https://armeria.dev/s/discord');
   addBadge(div, 'https://img.shields.io/maven-central/v/com.linecorp.centraldogma/centraldogma-common.svg?style=flat-square',
