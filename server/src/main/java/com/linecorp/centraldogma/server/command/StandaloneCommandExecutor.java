@@ -299,13 +299,21 @@ public class StandaloneCommandExecutor extends AbstractCommandExecutor {
         return CompletableFuture.supplyAsync(() -> {
             final WrappedDekDetails wdekDetails = c.wdekDetails();
             final boolean encrypt = wdekDetails != null;
+            final Project project = projectManager.get(c.projectName());
+            // A repository in an encrypted project must be encrypted so that its data is not stored in
+            // plaintext. Reject a command that would bypass this invariant, e.g. a raw createRepository()
+            // command executed without going through the encryption-aware provisioning path.
+            if (!encrypt && project.repos().get(Project.REPO_DOGMA).isEncrypted()) {
+                throw new IllegalArgumentException(
+                        "A repository in an encrypted project must be encrypted: " +
+                        c.projectName() + '/' + c.repositoryName());
+            }
             if (encrypt) {
                 encryptionStorageManager.storeWdek(wdekDetails);
             }
 
             try {
-                projectManager.get(c.projectName()).repos().create(c.repositoryName(), c.timestamp(),
-                                                                   c.author(), encrypt);
+                project.repos().create(c.repositoryName(), c.timestamp(), c.author(), encrypt);
             } catch (Throwable t) {
                 if (encrypt) {
                     try {

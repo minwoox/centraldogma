@@ -72,6 +72,7 @@ import com.linecorp.centraldogma.server.storage.encryption.EncryptionStorageMana
 import com.linecorp.centraldogma.server.storage.encryption.WrappedDekDetails;
 import com.linecorp.centraldogma.server.storage.project.InternalProjectInitializer;
 import com.linecorp.centraldogma.server.storage.project.Project;
+import com.linecorp.centraldogma.server.storage.project.ProjectProvisioner;
 import com.linecorp.centraldogma.server.storage.repository.Repository;
 
 import io.micrometer.core.instrument.Tag;
@@ -84,12 +85,14 @@ public class RepositoryServiceV1 extends AbstractService {
 
     private static final Logger logger = LoggerFactory.getLogger(RepositoryServiceV1.class);
 
+    private final ProjectProvisioner projectProvisioner;
     private final MetadataService mds;
     private final EncryptionStorageManager encryptionStorageManager;
 
-    public RepositoryServiceV1(CommandExecutor executor, MetadataService mds,
-                               EncryptionStorageManager encryptionStorageManager) {
+    public RepositoryServiceV1(ProjectProvisioner projectProvisioner, CommandExecutor executor,
+                               MetadataService mds, EncryptionStorageManager encryptionStorageManager) {
         super(executor);
+        this.projectProvisioner = requireNonNull(projectProvisioner, "projectProvisioner");
         this.mds = requireNonNull(mds, "mds");
         this.encryptionStorageManager = requireNonNull(encryptionStorageManager, "encryptionStorageManager");
     }
@@ -198,12 +201,10 @@ public class RepositoryServiceV1 extends AbstractService {
                                              "Encryption is not enabled in the server.");
         }
 
-        final boolean encrypt = request.encrypt() || isEncryptedProject(project);
-
-        final CommandExecutor commandExecutor = executor();
         final CompletableFuture<Revision> future =
-                RepositoryServiceUtil.createRepository(commandExecutor, mds, author, project.name(), repoName,
-                                                       encrypt, encryptionStorageManager);
+                projectProvisioner.createRepository(author, project.name(), repoName,
+                                                    RepositoryMetadata.DEFAULT_PROJECT_ROLES, true,
+                                                    request.encrypt());
         return future.handle(returnOrThrow(() -> {
             final Repository repository = project.repos().get(repoName);
             return newRepositoryDto(repository, repositoryStatus(repository));
@@ -587,10 +588,6 @@ public class RepositoryServiceV1 extends AbstractService {
                            Tag.of("repo", repoName),
                            Tag.of("service", firstNonNull(log.serviceName(), "none")),
                            Tag.of("method", log.name()));
-    }
-
-    private static boolean isEncryptedProject(Project project) {
-        return project.repos().get(Project.REPO_DOGMA).isEncrypted();
     }
 
     private static void rejectIfDogmaProject(Project project) {

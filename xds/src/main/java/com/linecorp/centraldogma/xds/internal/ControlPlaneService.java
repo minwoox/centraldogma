@@ -163,7 +163,8 @@ public final class ControlPlaneService extends XdsResourceWatchingService {
         this.xdsEndpointService = xdsEndpointService;
         serverBuilder.annotatedService().pathPrefix("/api/v1").build(xdsEndpointService);
         serverBuilder.annotatedService().pathPrefix("/api/v1").build(
-                new XdsGroupService(xdsProject(), commandExecutor, mds));
+                new XdsGroupService(xdsProject(), pluginInitContext.projectProvisioner(), commandExecutor,
+                                    mds));
         serverBuilder.annotatedService().pathPrefix("/api/v1").build(
                 new XdsKubernetesService(xdsResourceManager));
 

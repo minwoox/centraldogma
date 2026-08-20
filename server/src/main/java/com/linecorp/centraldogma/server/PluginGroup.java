@@ -50,6 +50,7 @@ import com.linecorp.centraldogma.server.plugin.PluginContext;
 import com.linecorp.centraldogma.server.plugin.PluginTarget;
 import com.linecorp.centraldogma.server.storage.project.InternalProjectInitializer;
 import com.linecorp.centraldogma.server.storage.project.ProjectManager;
+import com.linecorp.centraldogma.server.storage.project.ProjectProvisioner;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -155,10 +156,11 @@ final class PluginGroup {
                                   CommandExecutor commandExecutor, MeterRegistry meterRegistry,
                                   ScheduledExecutorService purgeWorker,
                                   InternalProjectInitializer internalProjectInitializer,
-                                  MirrorAccessController mirrorAccessController) {
+                                  MirrorAccessController mirrorAccessController,
+                                  ProjectProvisioner projectProvisioner) {
         final PluginContext context = new PluginContext(config, projectManager, commandExecutor, meterRegistry,
                                                         purgeWorker, internalProjectInitializer,
-                                                        mirrorAccessController);
+                                                        mirrorAccessController, projectProvisioner);
         return startStop.start(context, context, true);
     }
 
@@ -169,10 +171,12 @@ final class PluginGroup {
                                  CommandExecutor commandExecutor, MeterRegistry meterRegistry,
                                  ScheduledExecutorService purgeWorker,
                                  InternalProjectInitializer internalProjectInitializer,
-                                 MirrorAccessController mirrorAccessController) {
+                                 MirrorAccessController mirrorAccessController,
+                                 ProjectProvisioner projectProvisioner) {
         return startStop.stop(
                 new PluginContext(config, projectManager, commandExecutor, meterRegistry, purgeWorker,
-                                  internalProjectInitializer, mirrorAccessController));
+                                  internalProjectInitializer, mirrorAccessController,
+                                  projectProvisioner));
     }
 
     private class PluginGroupStartStop extends StartStopSupport<PluginContext, PluginContext, Void, Void> {

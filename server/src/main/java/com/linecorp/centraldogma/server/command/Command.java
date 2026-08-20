@@ -71,6 +71,10 @@ public interface Command<T> {
     /**
      * Returns a new {@link Command} which is used to create a new project.
      *
+     * <p>This is a low-level provisioning primitive. Server extensions and plugins must not execute this
+     * command directly; they should create projects through {@code ProjectProvisioner} so that the project
+     * metadata and, when enabled, encryption at rest are set up.
+     *
      * @param author the author who is creating the project
      * @param name the name of the project which is supposed to be created
      */
@@ -180,6 +184,10 @@ public interface Command<T> {
 
     /**
      * Returns a new {@link Command} which is used to create a new repository.
+     *
+     * <p>This is a low-level provisioning primitive. Server extensions and plugins must not execute this
+     * command directly; they should create repositories through {@code ProjectProvisioner} so that the
+     * repository metadata and, when the project is encrypted, encryption at rest are set up.
      *
      * @param author the author who is creating the repository
      * @param projectName the name of the project that the new repository is supposed to belong to

@@ -23,6 +23,7 @@ import static com.linecorp.centraldogma.internal.Util.validateRepositoryName;
 import static com.linecorp.centraldogma.server.internal.api.ContentServiceV1.checkMetaRepoPush;
 import static com.linecorp.centraldogma.server.internal.api.RepositoryServiceV1.increaseCounterIfOldRevisionUsed;
 import static com.linecorp.centraldogma.server.internal.thrift.Converter.convert;
+import static com.linecorp.centraldogma.server.metadata.RepositoryMetadata.DEFAULT_PROJECT_ROLES;
 import static com.linecorp.centraldogma.server.storage.project.Project.isInternalRepo;
 import static com.linecorp.centraldogma.server.storage.repository.FindOptions.FIND_ALL_WITHOUT_CONTENT;
 import static com.spotify.futures.CompletableFutures.allAsList;
@@ -126,7 +127,7 @@ public class CentralDogmaServiceImpl implements CentralDogmaService.AsyncIface {
     public void createProject(String name, AsyncMethodCallback resultHandler) {
         validateProjectName(name, "name", false);
         // ProjectInitializingCommandExecutor initializes a metadata for the specified project.
-        handle(projectApiManager.createProject(name, SYSTEM), resultHandler);
+        handle(projectApiManager.createProject(SYSTEM, name), resultHandler);
     }
 
     @Override
@@ -171,8 +172,11 @@ public class CentralDogmaServiceImpl implements CentralDogmaService.AsyncIface {
             resultHandler.onError(convert(RESERVED_REPOSITORY_EXCEPTION));
             return;
         }
-        handleAsVoidResult(executor.execute(Command.createRepository(SYSTEM, projectName, repositoryName))
-                                   .thenCompose(unused -> mds.addRepo(SYSTEM, projectName, repositoryName)),
+        // Delegate to the provisioner so the repository is encrypted when the project is encrypted and its
+        // metadata is registered, matching the other repository-creation paths. assignRoleToAuthor is false to
+        // preserve the previous behavior of not granting the system author any role.
+        handleAsVoidResult(projectApiManager.createRepository(SYSTEM, projectName, repositoryName,
+                                                              DEFAULT_PROJECT_ROLES, false, false),
                            resultHandler);
     }
 

@@ -138,7 +138,7 @@ public class ProjectServiceV1 extends AbstractService {
     @StatusCode(201)
     @ResponseConverter(CreateApiResponseConverter.class)
     public CompletableFuture<ProjectDto> createProject(CreateProjectRequest request, Author author, User user) {
-        return projectApiManager.createProject(request.name(), author).handle(returnOrThrow(() -> {
+        return projectApiManager.createProject(author, request.name()).handle(returnOrThrow(() -> {
             final Project project = projectApiManager.getProject(request.name(), user);
             return newProjectDto(project, ProjectRole.OWNER);
         }));

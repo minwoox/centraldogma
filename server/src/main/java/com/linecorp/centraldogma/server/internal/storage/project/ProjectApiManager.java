@@ -17,6 +17,7 @@ package com.linecorp.centraldogma.server.internal.storage.project;
 
 import static com.linecorp.centraldogma.internal.Util.INTERNAL_PROJECT_PREFIX;
 import static com.linecorp.centraldogma.server.internal.storage.InternalProjectConstants.INTERNAL_PROJECT_XDS;
+import static com.linecorp.centraldogma.server.metadata.RepositoryMetadata.DEFAULT_PROJECT_ROLES;
 import static com.linecorp.centraldogma.server.storage.project.InternalProjectInitializer.INTERNAL_PROJECT_DOGMA;
 
 import java.time.Instant;
@@ -27,26 +28,35 @@ import java.util.concurrent.CompletableFuture;
 
 import org.jspecify.annotations.Nullable;
 
+import com.google.common.collect.ImmutableMap;
+
 import com.linecorp.centraldogma.common.Author;
 import com.linecorp.centraldogma.common.PermissionException;
+import com.linecorp.centraldogma.common.RepositoryRole;
 import com.linecorp.centraldogma.common.Revision;
 import com.linecorp.centraldogma.server.command.Command;
 import com.linecorp.centraldogma.server.command.CommandExecutor;
 import com.linecorp.centraldogma.server.internal.admin.auth.AuthUtil;
 import com.linecorp.centraldogma.server.metadata.MetadataService;
 import com.linecorp.centraldogma.server.metadata.ProjectMetadata;
+import com.linecorp.centraldogma.server.metadata.ProjectRoles;
+import com.linecorp.centraldogma.server.metadata.RepositoryMetadata;
+import com.linecorp.centraldogma.server.metadata.Roles;
 import com.linecorp.centraldogma.server.metadata.User;
+import com.linecorp.centraldogma.server.metadata.UserAndTimestamp;
 import com.linecorp.centraldogma.server.storage.encryption.EncryptionStorageException;
 import com.linecorp.centraldogma.server.storage.encryption.EncryptionStorageManager;
 import com.linecorp.centraldogma.server.storage.encryption.WrappedDekDetails;
 import com.linecorp.centraldogma.server.storage.project.Project;
 import com.linecorp.centraldogma.server.storage.project.ProjectManager;
+import com.linecorp.centraldogma.server.storage.project.ProjectProvisioner;
 
 /**
  * A wrapper class of {@link ProjectManager} which prevents accessing internal projects
- * from unprivileged requests.
+ * from unprivileged requests. It also serves as the {@link ProjectProvisioner} implementation that creates
+ * projects and repositories with their metadata and, when enabled, encryption at rest.
  */
-public final class ProjectApiManager {
+public final class ProjectApiManager implements ProjectProvisioner {
 
     private final ProjectManager projectManager;
     private final CommandExecutor commandExecutor;
@@ -101,16 +111,16 @@ public final class ProjectApiManager {
         return projectManager.listRemoved();
     }
 
-    public CompletableFuture<Void> createProject(String projectName, Author author) {
+    @Override
+    public CompletableFuture<Void> createProject(Author author, String projectName) {
         checkInternalProject(projectName, "create");
         if (!encryptionStorageManager.enabled()) {
             return commandExecutor.execute(Command.createProject(author, projectName));
         }
         return encryptionStorageManager.generateWdek()
                                        .thenCompose(wdek -> {
-                                           final WrappedDekDetails wdekDetails = new WrappedDekDetails(
-                                                   wdek, 1, encryptionStorageManager.kekId(),
-                                                   projectName, Project.REPO_DOGMA);
+                                           final WrappedDekDetails wdekDetails =
+                                                   newWrappedDekDetails(wdek, projectName, Project.REPO_DOGMA);
                                            return commandExecutor.execute(
                                                    Command.createProject(author, projectName, wdekDetails));
                                        })
@@ -118,6 +128,68 @@ public final class ProjectApiManager {
                                            throw new EncryptionStorageException(
                                                    "Failed to create encrypted project " + projectName, cause);
                                        });
+    }
+
+    @Override
+    public CompletableFuture<Revision> createRepository(Author author, String projectName, String repoName) {
+        return createRepository(author, projectName, repoName, DEFAULT_PROJECT_ROLES, true, false);
+    }
+
+    @Override
+    public CompletableFuture<Revision> createRepository(Author author, String projectName, String repoName,
+                                                        ProjectRoles projectRoles, boolean assignRoleToAuthor,
+                                                        boolean encrypt) {
+        final Map<String, RepositoryRole> users;
+        final Map<String, RepositoryRole> appIds;
+        if (!assignRoleToAuthor) {
+            // Do not grant the author (e.g. a bot) any role on the new repository.
+            users = ImmutableMap.of();
+            appIds = ImmutableMap.of();
+        } else if (author.isAppIdentity()) {
+            users = ImmutableMap.of();
+            // author.name() is the appId.
+            appIds = ImmutableMap.of(author.name(), RepositoryRole.ADMIN);
+        } else {
+            users = ImmutableMap.of(author.email(), RepositoryRole.ADMIN);
+            appIds = ImmutableMap.of();
+        }
+
+        final Roles roles = new Roles(projectRoles, users, null, appIds);
+        final RepositoryMetadata repositoryMetadata =
+                RepositoryMetadata.of(repoName, roles, UserAndTimestamp.of(author));
+
+        // A repository must be encrypted if its project is encrypted, even if the caller did not request it.
+        if (!encrypt && !isEncryptedProject(projectName)) {
+            return commandExecutor.execute(Command.createRepository(author, projectName, repoName))
+                                  .thenCompose(unused -> metadataService.addRepo(
+                                          author, projectName, repoName, repositoryMetadata));
+        }
+
+        return encryptionStorageManager.generateWdek()
+                                       .thenCompose(wdek -> {
+                                           final WrappedDekDetails wrappedDekDetails =
+                                                   newWrappedDekDetails(wdek, projectName, repoName);
+                                           return commandExecutor.execute(Command.createRepository(
+                                                   author, projectName, repoName, wrappedDekDetails));
+                                       })
+                                       .thenCompose(unused -> metadataService.addRepo(
+                                               author, projectName, repoName, repositoryMetadata))
+                                       .exceptionally(cause -> {
+                                           if (cause instanceof EncryptionStorageException) {
+                                               throw (EncryptionStorageException) cause;
+                                           }
+                                           throw new EncryptionStorageException(
+                                                   "Failed to create encrypted repository " +
+                                                   projectName + '/' + repoName, cause);
+                                       });
+    }
+
+    private WrappedDekDetails newWrappedDekDetails(String wdek, String projectName, String repoName) {
+        return new WrappedDekDetails(wdek, 1, encryptionStorageManager.kekId(), projectName, repoName);
+    }
+
+    private boolean isEncryptedProject(String projectName) {
+        return projectManager.get(projectName).repos().get(Project.REPO_DOGMA).isEncrypted();
     }
 
     private static void checkInternalProject(String projectName, String operation) {

@@ -18,7 +18,6 @@ package com.linecorp.centraldogma.xds.group.v1;
 import static com.linecorp.centraldogma.internal.Util.PROJECT_AND_REPO_NAME_PATTERN;
 import static com.linecorp.centraldogma.server.internal.admin.auth.AuthUtil.currentUser;
 import static com.linecorp.centraldogma.server.internal.admin.auth.AuthUtil.getAuthor;
-import static com.linecorp.centraldogma.server.internal.api.RepositoryServiceUtil.createRepository;
 import static com.linecorp.centraldogma.server.internal.api.RepositoryServiceUtil.removeRepository;
 import static com.linecorp.centraldogma.server.internal.storage.InternalProjectConstants.INTERNAL_PROJECT_XDS;
 import static com.linecorp.centraldogma.xds.internal.XdsResourceManager.errorResponse;
@@ -38,6 +37,7 @@ import com.linecorp.centraldogma.server.metadata.MetadataService;
 import com.linecorp.centraldogma.server.metadata.ProjectMetadata;
 import com.linecorp.centraldogma.server.metadata.User;
 import com.linecorp.centraldogma.server.storage.project.Project;
+import com.linecorp.centraldogma.server.storage.project.ProjectProvisioner;
 
 /**
  * Annotated service object for managing xDS groups.
@@ -45,14 +45,17 @@ import com.linecorp.centraldogma.server.storage.project.Project;
 public final class XdsGroupService {
 
     private final Project xdsProject;
+    private final ProjectProvisioner projectProvisioner;
     private final CommandExecutor commandExecutor;
     private final MetadataService mds;
 
     /**
      * Creates a new instance.
      */
-    public XdsGroupService(Project xdsProject, CommandExecutor commandExecutor, MetadataService mds) {
+    public XdsGroupService(Project xdsProject, ProjectProvisioner projectProvisioner,
+                           CommandExecutor commandExecutor, MetadataService mds) {
         this.xdsProject = xdsProject;
+        this.projectProvisioner = projectProvisioner;
         this.commandExecutor = commandExecutor;
         this.mds = mds;
     }
@@ -81,8 +84,7 @@ public final class XdsGroupService {
             return CompletableFuture.completedFuture(
                     errorResponse(HttpStatus.UNAUTHORIZED, "Authentication required"));
         }
-        return createRepository(commandExecutor, mds, getAuthor(createUser), INTERNAL_PROJECT_XDS, groupId,
-                                false, null)
+        return projectProvisioner.createRepository(getAuthor(createUser), INTERNAL_PROJECT_XDS, groupId)
                 .handle((unused, cause) -> {
                     if (cause != null) {
                         final Throwable peeled = Exceptions.peel(cause);

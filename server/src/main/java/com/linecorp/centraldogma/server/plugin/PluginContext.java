@@ -26,6 +26,7 @@ import com.linecorp.centraldogma.server.mirror.MirrorAccessController;
 import com.linecorp.centraldogma.server.storage.project.InternalProjectInitializer;
 import com.linecorp.centraldogma.server.storage.project.Project;
 import com.linecorp.centraldogma.server.storage.project.ProjectManager;
+import com.linecorp.centraldogma.server.storage.project.ProjectProvisioner;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -41,6 +42,7 @@ public class PluginContext {
     private final ScheduledExecutorService purgeWorker;
     private final InternalProjectInitializer internalProjectInitializer;
     private final MirrorAccessController mirrorAccessController;
+    private final ProjectProvisioner projectProvisioner;
 
     /**
      * Creates a new instance.
@@ -52,6 +54,8 @@ public class PluginContext {
      * @param purgeWorker the {@link ScheduledExecutorService} for the purging service
      * @param internalProjectInitializer the initializer for the internal projects
      * @param mirrorAccessController the controller which controls the access to the remote repos of mirrors
+     * @param projectProvisioner the provisioner which creates projects and repositories with their metadata
+     *                           and, when enabled, encryption at rest
      */
     public PluginContext(CentralDogmaConfig config,
                          ProjectManager projectManager,
@@ -59,15 +63,20 @@ public class PluginContext {
                          MeterRegistry meterRegistry,
                          ScheduledExecutorService purgeWorker,
                          InternalProjectInitializer internalProjectInitializer,
-                         MirrorAccessController mirrorAccessController) {
+                         MirrorAccessController mirrorAccessController,
+                         ProjectProvisioner projectProvisioner) {
         this.config = requireNonNull(config, "config");
         this.projectManager = requireNonNull(projectManager, "projectManager");
-        this.commandExecutor = requireNonNull(commandExecutor, "commandExecutor");
+        // Plugins must create projects and repositories through projectProvisioner() so that encryption and
+        // metadata are set up; deny executing the raw create commands to prevent bypassing it.
+        this.commandExecutor = new ProvisioningRestrictedCommandExecutor(
+                requireNonNull(commandExecutor, "commandExecutor"));
         this.meterRegistry = requireNonNull(meterRegistry, "meterRegistry");
         this.purgeWorker = requireNonNull(purgeWorker, "purgeWorker");
         this.internalProjectInitializer = requireNonNull(internalProjectInitializer,
                                                          "internalProjectInitializer");
         this.mirrorAccessController = requireNonNull(mirrorAccessController, "mirrorAccessController");
+        this.projectProvisioner = requireNonNull(projectProvisioner, "projectProvisioner");
     }
 
     /**
@@ -117,5 +126,12 @@ public class PluginContext {
      */
     public MirrorAccessController mirrorAccessController() {
         return mirrorAccessController;
+    }
+
+    /**
+     * Returns the {@link ProjectProvisioner}.
+     */
+    public ProjectProvisioner projectProvisioner() {
+        return projectProvisioner;
     }
 }

@@ -29,6 +29,7 @@ import com.linecorp.centraldogma.server.command.CommandExecutor;
 import com.linecorp.centraldogma.server.mirror.MirrorAccessController;
 import com.linecorp.centraldogma.server.storage.project.InternalProjectInitializer;
 import com.linecorp.centraldogma.server.storage.project.ProjectManager;
+import com.linecorp.centraldogma.server.storage.project.ProjectProvisioner;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -50,9 +51,10 @@ public final class PluginInitContext extends PluginContext {
                              ScheduledExecutorService purgeWorker, ServerBuilder serverBuilder,
                              Function<? super HttpService, AuthService> authService,
                              InternalProjectInitializer projectInitializer,
-                             MirrorAccessController mirrorAccessController) {
+                             MirrorAccessController mirrorAccessController,
+                             ProjectProvisioner projectProvisioner) {
         super(config, projectManager, commandExecutor, meterRegistry, purgeWorker, projectInitializer,
-              mirrorAccessController);
+              mirrorAccessController, projectProvisioner);
         this.serverBuilder = requireNonNull(serverBuilder, "serverBuilder");
         this.authService = requireNonNull(authService, "authService");
     }

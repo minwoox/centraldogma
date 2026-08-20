@@ -287,6 +287,10 @@ public class CentralDogma implements AutoCloseable {
     @Nullable
     private volatile EncryptionStorageManager encryptionStorageManager;
     @Nullable
+    private volatile MetadataService mds;
+    @Nullable
+    private volatile ProjectApiManager projectApiManager;
+    @Nullable
     private volatile ProjectManager pm;
     @Nullable
     private volatile Server server;
@@ -540,7 +544,7 @@ public class CentralDogma implements AutoCloseable {
                 logger.info("Starting plugins on the leader replica ..");
                 pluginsForLeaderOnly
                         .start(cfg, pm, exec, meterRegistry, purgeWorker, projectInitializer,
-                               mirrorAccessController)
+                               mirrorAccessController, projectApiManager)
                         .handle((unused, cause) -> {
                             if (cause == null) {
                                 logger.info("Started plugins on the leader replica.");
@@ -558,7 +562,7 @@ public class CentralDogma implements AutoCloseable {
                 final CompletableFuture<?> future =
                         pluginsForLeaderOnly
                                 .stop(cfg, pm, exec, meterRegistry, purgeWorker, projectInitializer,
-                                      mirrorAccessController)
+                                      mirrorAccessController, projectApiManager)
                                 .handle((unused, cause) -> {
                                     if (cause == null) {
                                         logger.info("Stopped plugins on the leader replica.");
@@ -585,7 +589,7 @@ public class CentralDogma implements AutoCloseable {
                 logger.info("Starting plugins on the {} zone leader replica ..", zone);
                 pluginsForZoneLeaderOnly
                         .start(cfg, pm, exec, meterRegistry, purgeWorker, projectInitializer,
-                               mirrorAccessController)
+                               mirrorAccessController, projectApiManager)
                         .handle((unused, cause) -> {
                             if (cause == null) {
                                 logger.info("Started plugins on the {} zone leader replica.", zone);
@@ -601,7 +605,7 @@ public class CentralDogma implements AutoCloseable {
                 final CompletableFuture<?> future =
                         pluginsForZoneLeaderOnly
                                 .stop(cfg, pm, exec, meterRegistry, purgeWorker,
-                                      projectInitializer, mirrorAccessController)
+                                      projectInitializer, mirrorAccessController, projectApiManager)
                                 .handle((unused, cause) -> {
                                     if (cause == null) {
                                         logger.info("Stopped plugins on the {} zone leader replica.", zone);
@@ -642,6 +646,11 @@ public class CentralDogma implements AutoCloseable {
         }
         projectInitializer = new InternalProjectInitializer(executor, pm, encryptionStorageManager);
         mirrorAccessController = new DefaultMirrorAccessController();
+        // Build the metadata service and the project provisioner before the executor starts, so that the
+        // leader/zone-leader plugins started by the leadership callbacks below can use the provisioner.
+        final MetadataService mds = new MetadataService(pm, executor, projectInitializer);
+        this.mds = mds;
+        projectApiManager = new ProjectApiManager(pm, executor, mds, encryptionStorageManager);
 
         final ServerStatus initialServerStatus = statusManager.serverStatus();
         executor.setWritable(initialServerStatus.writable());
@@ -793,12 +802,12 @@ public class CentralDogma implements AutoCloseable {
         }
         sb.gracefulShutdown(gracefulShutdown);
 
-        final MetadataService mds = new MetadataService(pm, executor, projectInitializer);
+        // Created in startCommandExecutor() before the executor starts.
+        final MetadataService mds = requireNonNull(this.mds, "mds");
+        final ProjectApiManager projectApiManager = requireNonNull(this.projectApiManager, "projectApiManager");
         final WatchService watchService = new WatchService(meterRegistry);
         final AuthProvider authProvider = createAuthProvider(executor, sessionManager, mds, needsTls,
                                                              mtlsEnabled, encryptionStorageManager);
-        final ProjectApiManager projectApiManager =
-                new ProjectApiManager(pm, executor, mds, encryptionStorageManager);
 
         if (cfg.enableThriftService()) {
             if (THRIFT_FOUND) {
@@ -850,7 +859,8 @@ public class CentralDogma implements AutoCloseable {
         if (pluginsForAllReplicas != null) {
             final PluginInitContext pluginInitContext =
                     new PluginInitContext(config(), pm, executor, meterRegistry, purgeWorker, sb,
-                                          authService, projectInitializer, mirrorAccessController);
+                                          authService, projectInitializer, mirrorAccessController,
+                                          projectApiManager);
             pluginsForAllReplicas.plugins()
                                  .forEach(p -> {
                                      if (!(p instanceof AllReplicasPlugin)) {
@@ -1013,7 +1023,8 @@ public class CentralDogma implements AutoCloseable {
         apiV1ServiceBuilder
                 .annotatedService(new ServerStatusService(executor, statusManager))
                 .annotatedService(new ProjectServiceV1(projectApiManager, executor))
-                .annotatedService(new RepositoryServiceV1(executor, mds, encryptionStorageManager))
+                .annotatedService(new RepositoryServiceV1(projectApiManager, executor, mds,
+                                                          encryptionStorageManager))
                 .annotatedService(new CredentialServiceV1(projectApiManager, executor))
                 .annotatedService(new VariableServiceV1(pm, executor));
         if (LOGBACK_ENABLED) {
@@ -1245,6 +1256,8 @@ public class CentralDogma implements AutoCloseable {
         this.server = null;
         this.executor = null;
         this.encryptionStorageManager = null;
+        this.mds = null;
+        this.projectApiManager = null;
         this.pm = null;
         this.repositoryWorker = null;
         this.sessionManager = null;
@@ -1404,9 +1417,12 @@ public class CentralDogma implements AutoCloseable {
                             final ProjectManager pm = CentralDogma.this.pm;
                             final CommandExecutor executor = CentralDogma.this.executor;
                             final MeterRegistry meterRegistry = CentralDogma.this.meterRegistry;
-                            if (pm != null && executor != null && meterRegistry != null) {
+                            final ProjectApiManager projectApiManager = CentralDogma.this.projectApiManager;
+                            if (pm != null && executor != null && meterRegistry != null &&
+                                projectApiManager != null) {
                                 pluginsForAllReplicas.start(cfg, pm, executor, meterRegistry, purgeWorker,
-                                                            projectInitializer, mirrorAccessController).join();
+                                                            projectInitializer, mirrorAccessController,
+                                                            projectApiManager).join();
                             }
                         }
                         serverHealth.setHealthy(true);
@@ -1424,9 +1440,12 @@ public class CentralDogma implements AutoCloseable {
                     final ProjectManager pm = CentralDogma.this.pm;
                     final CommandExecutor executor = CentralDogma.this.executor;
                     final MeterRegistry meterRegistry = CentralDogma.this.meterRegistry;
-                    if (pm != null && executor != null && meterRegistry != null) {
+                    final ProjectApiManager projectApiManager = CentralDogma.this.projectApiManager;
+                    if (pm != null && executor != null && meterRegistry != null &&
+                        projectApiManager != null) {
                         pluginsForAllReplicas.stop(cfg, pm, executor, meterRegistry, purgeWorker,
-                                                   projectInitializer, mirrorAccessController).join();
+                                                   projectInitializer, mirrorAccessController,
+                                                   projectApiManager).join();
                     }
                 }
                 CentralDogma.this.doStop();
