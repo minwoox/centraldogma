@@ -183,10 +183,10 @@ repository contents.
 
 ## Session cookie encryption
 
-Set `encryption.encryptSessionCookie` to `true` to encrypt authentication session cookies. Central
-Dogma stores versioned session master keys wrapped with the configured KEK and derives the keys used
-to protect cookies from them. This option is separate from repository storage encryption and
-defaults to `false`.
+Set both `encryption.enabled` and `encryption.encryptSessionCookie` to `true` to encrypt authentication
+session cookies. This requires a configured `KeyWrapper`. Central Dogma stores versioned session master keys
+wrapped with the configured KEK and derives the keys used to protect cookies from them.
+This option is separate from repository storage encryption and defaults to `false`.
 
 Rotate the session master key with:
 
